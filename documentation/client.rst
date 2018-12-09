@@ -103,6 +103,10 @@ API Reference
 
     .. automethod:: close
 
+    .. automethod:: pause
+
+    .. automethod:: resume
+
 .. autoclass:: Disconnected
 
 .. autoclass:: RemoteError

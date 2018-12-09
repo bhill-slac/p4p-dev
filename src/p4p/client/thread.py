@@ -53,19 +53,34 @@ class Subscription(object):
     Returned by `Context.monitor`.
     """
 
-    def __init__(self, ctxt, name, cb, notify_disconnect=False, queue=None):
-        self.name, self._S, self._cb = name, None, cb
+    def __init__(self, ctxt, name, cb, notify_disconnect=False, queue=None, subscription_arg=False):
+        # const after ctor
+        if subscription_arg:
+            _cb = cb
+            cb = lambda val:_cb(val, self)
+
+        self.name, self._cb = name, cb
         self._notify_disconnect = notify_disconnect
         self._Q = queue or ctxt._Q or _defaultWorkQueue()
+        self._lock = threading.Lock()
         self._evt = threading.Event()
-        if notify_disconnect:
-            # all subscriptions are inittially disconnected
-            self._Q.push_wait(partial(cb, Disconnected()))
+        # guarded by self_lock
+        self._S = None
+        self._pending = []
+        self._paused = False
+
+    def __repr__(self):
+        return 'Subscription("%s", paused=%s, #pending=%s)'%(self.name, self._paused, len(self._pending))
+    __str__ = __repr__
 
     def close(self):
         """Close subscription.
         """
         if self._S is not None:
+            _log.debug("Subscription close for %s", self.name)
+            # we lose any other queued events
+            self._pending = []
+            self._paused = False
             # after .close() self._event should never be called
             self._S.close()
             # wait for Cancelled to be delivered
@@ -81,63 +96,132 @@ class Subscription(object):
     @property
     def done(self):
         'Has all data for this subscription been received?'
-        return self._S is None or self._S.done()
+        with self._lock:
+            return self._S is None or self._S.done()
 
     @property
-    def empty(self):
-        'Is data pending in event queue?'
-        return self._S is None or self._S.empty()
+    def paused(self):
+        with self._lock:
+            return self._paused
+
+    def pause(self):
+        """Pause the subscription.
+
+        Since 3.1.0
+
+        Once called, stop delivering callbacks until `resume()` is called.
+
+        Best used in combination with pvRequest options 'pipeline=true' and 'queueSize=<#>',
+        and "subscription_arg=True". ::
+
+            TQ = p4p.util.TimerQueue().start()
+            def cb(value, S):
+                if ... detect over-rate:
+                    S.pause()
+                    TQ.push(S.resume, delay=1.0)
+                .print(value)
+            S = ctxt.monitor("pv:name", cb, request='record[pipeline=true,queueSize=2]', subscription_arg=True)
+        """
+        with self._lock:
+            _log.debug("pause %s", self.name)
+            self._paused = True
+
+    def resume(self):
+        """Reverse the effects of `pause()`.
+
+        Since 3.1.0
+        """
+        with self._lock:
+            _log.debug("resume %s %s %s", self.name, self._paused, len(self._pending))
+            if self._paused:
+                self._paused = False
+                if len(self._pending):
+                    self._Q.push(self._handle)
 
     def _event(self, E):
-        try:
+        "Adding a new event to the queue"
+        with self._lock:
             assert self._S is not None, self._S
-            # TODO: ensure ordering of error and data events
-            _log.debug('Subscription wakeup for %s with %s', self.name, LazyRepr(E))
-            self._inprog = True
-            self._Q.push(partial(self._handle, E))
-        except:
-            _log.exception("Lost Subscription update: %s", LazyRepr(E))
 
-    def _handle(self, E):
+            first = len(self._pending)==0 and not self._paused
+            self._pending.append(E)
+
+            if first:
+                _log.debug('Subscription wakeup for %s with %s', self.name, LazyRepr(E))
+                self._Q.push(self._handle)
+
+            else:
+                _log.debug('Subscription queue for %s with %s', self.name, LazyRepr(E))
+
+    def _handle(self):
         try:
-            S = self._S
+            cb = None
+            with self._lock:
 
-            if isinstance(E, Cancelled):
-                self._evt.set()
-                return
+                if self._paused:
+                    return
+                try:
+                    E = self._pending.pop(0)
+                except IndexError:
+                    return # nothing to do there
 
-            elif isinstance(E, (Disconnected, RemoteError)):
-                _log.debug('Subscription notify for %s with %s', self.name, E)
-                if self._notify_disconnect:
-                    self._cb(E)
-                elif isinstance(E, RemoteError):
-                    _log.error("Subscription Error %s", E)
-                return
+                if isinstance(E, Cancelled):
+                    self._evt.set()
+                    return
 
-            elif S is None:  # already close()'d
-                return
+                elif isinstance(E, (Disconnected, RemoteError)):
+                    _log.debug('Subscription notify for %s with %s', self.name, E)
+                    if self._notify_disconnect:
+                        cb = self._cb
+                    elif isinstance(E, RemoteError):
+                        _log.error("Subscription Error %s", E)
 
-            for n in range(4):
-                E = S.pop()
-                if E is None:
-                    break
-                self._cb(E)
+                elif self._S is not None and E is None: # FIFO not empty
+                    for n in range(4):
+                        E = self._S.pop()
+                        if E is None:
+                            break
 
-            if E is not None:
-                # removed 4 elements without emptying queue
-                # re-schedule to mux with others
-                self._Q.push(partial(self._handle, True))
-            elif S.done:
-                _log.debug('Subscription complete %s', self.name)
-                S.close()
-                S = None
-                if self._notify_disconnect:
-                    self._cb(Finished())
+                        self._lock.release()
+                        try:
+                            self._cb(E)
+                        finally:
+                            self._lock.acquire()
+
+                        if self._paused:
+                            break
+
+                    if E is not None:
+                        # removed 4 elements without emptying queue
+                        # re-schedule to mux with others
+                        self._pending.insert(0, None)
+
+                if self._S.done:
+                    _log.debug('Subscription complete %s', self.name)
+                    self._S.close()
+                    self._S = None
+                    if self._notify_disconnect:
+                        cb, E = self._cb, Finished()
+
+                elif self._paused:
+                    _log.debug("Subscription is paused %s", self.name)
+
+                elif self._pending:
+                    _log.debug("Subscription resched for %s", self.name)
+                    self._Q.push(self._handle)
+
+                else:
+                    _log.debug("Subscription idles %s", self.name)
+            # re-lock
+            if cb is not None:
+                cb(E)
+
         except:
             _log.exception("Error processing Subscription event: %s", LazyRepr(E))
             if self._S is not None:
                 self._S.close()
             self._S = None
+            # no point in re-raising into shared thread pool worker
 
 
 class Context(raw.Context):
@@ -415,7 +499,7 @@ class Context(raw.Context):
             op.close()
             raise
 
-    def monitor(self, name, cb, request=None, notify_disconnect=False, queue=None):
+    def monitor(self, name, cb, request=None, notify_disconnect=False, queue=None, subscription_arg=False):
         """Create a subscription.
 
         :param str name: PV name string
@@ -423,15 +507,25 @@ class Context(raw.Context):
         :param request: A :py:class:`p4p.Value` or string to qualify this request, or None to use a default.
         :param bool notify_disconnect: In additional to Values, the callback may also be call with instances of Exception.
                                        Specifically: Disconnected , RemoteError, or Cancelled
+        :param bool subscription_arg: If set, pass `Subscription` as second argument of callback
         :param WorkQueue queue: A work queue through which monitor callbacks are dispatched.
         :returns: a :py:class:`Subscription` instance
 
-        The callable will be invoked with one argument which is either.
+        The callable will be invoked with either one or two arguments.  The first is one of:
 
         * A p4p.Value (Subject to :py:ref:`unwrap`)
         * A sub-class of Exception (Disconnected , RemoteError, or Cancelled)
+
+        If subscription_arg=True, the callback is passed its `Subscription` as a second argument.  Since 3.1.0.
+
+        While it is acceptable to block in a monitor callback, this does not scale passed the size of the thread
+        pool in which monitor callbaks run (~4).  To utilize flow control on a larger scale, see `Subscription.pause`.
         """
-        R = Subscription(self, name, cb, notify_disconnect=notify_disconnect, queue=queue)
+        R = Subscription(self, name, cb, notify_disconnect=notify_disconnect, queue=queue, subscription_arg=subscription_arg)
 
         R._S = super(Context, self).monitor(name, R._event, request)
+        
+        if notify_disconnect:
+            # all subscriptions are initially disconnected
+            R._event(Disconnected())
         return R
