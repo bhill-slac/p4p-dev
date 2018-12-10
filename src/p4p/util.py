@@ -8,12 +8,18 @@ try:
     from Queue import Queue, Full, Empty
 except ImportError:
     from queue import Queue, Full, Empty
-from threading import Thread, Event
+
+try:
+    from time import monotonic
+except ImportError:
+    from time import time as monotonic
+
+from threading import Thread, Event, Lock
+import heapq
 
 __all__ = [
     'WorkQueue',
 ]
-
 
 class WorkQueue(object):
 
@@ -139,3 +145,64 @@ class _DefaultWorkQueue(object):
         self.W = [None]*len(self.W)
 
 _defaultWorkQueue = _DefaultWorkQueue()
+
+class TimerQueue(Thread):
+    def __init__(self, daemon=False, time=monotonic):
+        super(TimerQueue, self).__init__()
+        self._time = time
+        self.daemon = daemon
+        self.done = False
+        self._evt = Event()
+        self._lock = Lock()
+        self._Q = []
+
+    def start(self):
+        super(TimerQueue, self).start()
+        return self
+
+    def join(self):
+        self.done = True
+        self._evt.set()
+        super(TimerQueue, self).join()
+
+    def sync(self, timeout=None):
+        evt = Event()
+        self.push(0, evt.set)
+        evt.wait(timeout)
+
+    def push(self, cb, delay=0):
+        _log.debug("Schedule %s %s", delay, cb)
+        deadline = self._time()+delay
+        ent = (deadline, cb)
+
+        with self._lock:
+            heapq.heappush(self._Q, ent)
+            wake = self._Q[0] is ent
+
+        if wake:
+            self._evt.set()
+
+    def run(self):
+        delay = None
+        while not self.done:
+            _log.debug("timer queue wait %s", delay)
+            if self._evt.wait(delay):
+                self._evt.clear()
+            delay = None
+            _log.debug("timer queue wake")
+
+            now = self._time()
+            actions = []
+
+            with self._lock:
+                while len(self._Q) and self._Q[0][0]<=now:
+                    actions.append(heapq.heappop(self._Q)[1])
+
+                if len(self._Q):
+                    delay = self._Q[0][0]-now # TODO? biased by action execution time
+
+            for A in actions:
+                try:
+                    A()
+                except:
+                    _log.exception("Error in timer callback %s", A)
