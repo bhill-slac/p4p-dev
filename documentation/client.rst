@@ -69,6 +69,28 @@ In all cases it is safe for a callback to block/yield.
 Subsequent updates for a `Subscription` will not be delivered until the current callback has completed.
 However, updates for other Subscriptions may be delivered.
 
+Monitor Flow Control
+""""""""""""""""""""
+
+It may be desirable to artificially slow the rate of monitor callbacks
+to express eg. a rate limit.  The basic mechanism for doing this is
+to "block" in a callback.  This must be done in a way which is appropriate
+to the concurrency mechanism used eg. (`time.sleep()` vs. `cothread.Sleep()` vs. `yield from asyncio.sleep()`).
+
+In practice an Event wait with timeout will be used rather than a simple sleep.
+See `threading.Event`, `cothread.Event`, or `asyncio.Event`.
+
+For cothread and asyncio, this approach is entirely sufficient.
+However, with the threaded client callbacks are dispatched into a thread pool
+with a finite number of workers.  When/if all of these are executing
+callbacks which are blocking, then any remaining Subscriptions will be stalled.
+
+For this reason `p4p.client.Subscription` has two additional methods
+`Subscription.pause()` and `Subscription.resume()` which may be used
+instead of blocking.
+
+Once `pause()` is called, future callbacks will be withheld until `resume()`.
+
 RPC
 ^^^
 
