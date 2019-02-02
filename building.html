@@ -1,0 +1,278 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>Building &#8212; P4P 0 documentation</title>
+    
+    <link rel="stylesheet" href="_static/classic.css" type="text/css" />
+    <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    './',
+        VERSION:     '0',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/underscore.js"></script>
+    <script type="text/javascript" src="_static/doctools.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="top" title="P4P 0 documentation" href="index.html" />
+    <link rel="next" title="Client API" href="client.html" />
+    <link rel="prev" title="Overview" href="overview.html" /> 
+  </head>
+  <body role="document">
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="right" >
+          <a href="client.html" title="Client API"
+             accesskey="N">next</a> |</li>
+        <li class="right" >
+          <a href="overview.html" title="Overview"
+             accesskey="P">previous</a> |</li>
+        <li class="nav-item nav-item-0"><a href="index.html">P4P 0 documentation</a> &#187;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <div class="section" id="building">
+<span id="id1"></span><h1>Building<a class="headerlink" href="#building" title="Permalink to this headline">¶</a></h1>
+<p>Release tars available from <a class="reference external" href="https://github.com/mdavidsaver/p4p/releases">https://github.com/mdavidsaver/p4p/releases</a></p>
+<p>The P4P modules requires:</p>
+<ul class="simple">
+<li>Python 2.7 or &gt;=3.4</li>
+<li>numpy &gt;=1.6</li>
+<li>nosetests (to run unittests)</li>
+<li>EPICS &gt;= 7.0.2</li>
+</ul>
+<p>or</p>
+<ul class="simple">
+<li>EPICS Base &gt;= 3.14.12</li>
+<li>pvDataCPP &gt;=7.1.0</li>
+<li>pvAccessCPP &gt;=6.1.0</li>
+</ul>
+<p>P4P can be built and installed in one of two ways.
+As a python package, preferably managed by PIP.
+As an EPICS module.</p>
+<div class="section" id="build-as-python-package">
+<h2>Build as Python package<a class="headerlink" href="#build-as-python-package" title="Permalink to this headline">¶</a></h2>
+<p>The process for building as a python package using sources from pypi.org by adding the argument &#8220;&#8211;no-binary :all:&#8221;
+to prevent the use of pre-built binarys.</p>
+<div class="highlight-default"><div class="highlight"><pre><span></span><span class="n">python</span> <span class="o">-</span><span class="n">m</span> <span class="n">virtualenv</span> <span class="n">p4ptest</span>
+<span class="o">.</span> <span class="n">p4ptest</span><span class="o">/</span><span class="nb">bin</span><span class="o">/</span><span class="n">activate</span>
+<span class="n">python</span> <span class="o">-</span><span class="n">m</span> <span class="n">pip</span> <span class="n">install</span> <span class="o">-</span><span class="n">U</span> <span class="n">pip</span>
+<span class="n">python</span> <span class="o">-</span><span class="n">m</span> <span class="n">pip</span> <span class="n">install</span> <span class="n">nose</span> <span class="n">numpy</span> <span class="c1"># Optional: avoids building numpy from source (slow)</span>
+<span class="n">python</span> <span class="o">-</span><span class="n">m</span> <span class="n">pip</span> <span class="n">install</span> <span class="o">--</span><span class="n">no</span><span class="o">-</span><span class="n">binary</span> <span class="p">:</span><span class="nb">all</span><span class="p">:</span> <span class="n">p4p</span>
+<span class="n">python</span> <span class="o">-</span><span class="n">m</span> <span class="n">nose</span> <span class="n">p4p</span>   <span class="c1"># Optional: runs automatic tests</span>
+</pre></div>
+</div>
+<div class="section" id="bootstrap-a-virtualenv-offline">
+<h3>Bootstrap a virtualenv offline<a class="headerlink" href="#bootstrap-a-virtualenv-offline" title="Permalink to this headline">¶</a></h3>
+<p>It may be necessary to create a virtualenv including P4P on a machine with no internet access,
+or to ensure the use of certain verified binary/source.
+The following recipe was tested with virtualenv 16.1 and pip 18.1.</p>
+<p>First, from a machine with internet access, and having the same archetecture as the target machine,
+collect the necessary files.</p>
+<div class="highlight-default"><div class="highlight"><pre><span></span>mkdir /tmp/venv
+cd /tmp/venv
+python -m pip download virtualenv
+unzip virtualenv-*.whl
+python virtualenv.py --never-download prepenv
+. prepenv/bin/activate
+pip download -d virtualenv_support p4p
+tar -caf p4p-env-`date -u +%Y%m%d`.tar.gz virtualenv.py virtualenv_support
+deactivate
+</pre></div>
+</div>
+<p>Now move the created file p4p-env-<a href="#id2"><span class="problematic" id="id3">*</span></a>.tar.gz to the target machine.
+Then prepare the virtualenv env with.</p>
+<div class="highlight-default"><div class="highlight"><pre><span></span><span class="n">tar</span> <span class="o">-</span><span class="n">xaf</span> <span class="n">p4p</span><span class="o">-</span><span class="n">env</span><span class="o">-*.</span><span class="n">tar</span><span class="o">.</span><span class="n">gz</span>
+<span class="n">python</span> <span class="n">virtualenv</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">never</span><span class="o">-</span><span class="n">download</span> <span class="n">env</span>
+<span class="o">.</span> <span class="n">env</span><span class="o">/</span><span class="nb">bin</span><span class="o">/</span><span class="n">activate</span>
+<span class="n">pip</span> <span class="n">install</span> <span class="o">--</span><span class="n">no</span><span class="o">-</span><span class="n">index</span> <span class="o">-</span><span class="n">f</span> <span class="n">virtualenv_support</span> <span class="n">p4p</span>
+<span class="n">python</span> <span class="o">-</span><span class="n">m</span> <span class="n">nose</span> <span class="n">p4p</span>   <span class="c1"># Optional: runs automatic tests</span>
+</pre></div>
+</div>
+<p>Utilities to automate this process include <a class="reference external" href="https://pypi.org/project/pyutilib.virtualenv/">https://pypi.org/project/pyutilib.virtualenv/</a></p>
+</div>
+</div>
+<div class="section" id="build-as-epics-module">
+<h2>Build as EPICS Module<a class="headerlink" href="#build-as-epics-module" title="Permalink to this headline">¶</a></h2>
+<p>P4P can also be built as an EPICS Module, though with additional python dependencies.</p>
+<p>Install python dependencies on eg. a Debian Linux host:</p>
+<div class="highlight-default"><div class="highlight"><pre><span></span><span class="n">sudo</span> <span class="n">apt</span><span class="o">-</span><span class="n">get</span> <span class="n">install</span> <span class="n">python2</span><span class="o">.</span><span class="mi">7</span><span class="o">-</span><span class="n">dev</span> <span class="n">python</span><span class="o">-</span><span class="n">numpy</span> <span class="n">python</span><span class="o">-</span><span class="n">nose</span>
+</pre></div>
+</div>
+<p>or with PIP:</p>
+<div class="highlight-default"><div class="highlight"><pre><span></span><span class="n">pip</span> <span class="n">install</span> <span class="o">-</span><span class="n">r</span> <span class="n">requirements</span><span class="o">-</span><span class="n">deb9</span><span class="o">.</span><span class="n">txt</span>
+</pre></div>
+</div>
+<p>From release tar.:</p>
+<div class="highlight-default"><div class="highlight"><pre><span></span><span class="n">curl</span> <span class="o">-</span><span class="n">L</span> <span class="s1">&#39;https://github.com/mdavidsaver/p4p/releases/download/1.0/p4p-1.0.tar.gz&#39;</span> <span class="o">|</span> <span class="n">tar</span> <span class="o">-</span><span class="n">xz</span>
+<span class="n">cd</span> <span class="n">p4p</span><span class="o">-</span><span class="mf">1.0</span>
+</pre></div>
+</div>
+<p>or from from versioned source.:</p>
+<div class="highlight-default"><div class="highlight"><pre><span></span><span class="n">git</span> <span class="n">clone</span> <span class="n">https</span><span class="p">:</span><span class="o">//</span><span class="n">github</span><span class="o">.</span><span class="n">com</span><span class="o">/</span><span class="n">mdavidsaver</span><span class="o">/</span><span class="n">p4p</span><span class="o">.</span><span class="n">git</span>
+<span class="n">cd</span> <span class="n">p4p</span>
+</pre></div>
+</div>
+<p>Set location of EPICS modules.  With EPICS &gt;= 7.0.1:</p>
+<div class="highlight-default"><div class="highlight"><pre><span></span><span class="n">cat</span> <span class="o">&lt;&lt;</span><span class="n">EOF</span> <span class="o">&gt;</span> <span class="n">configure</span><span class="o">/</span><span class="n">RELEASE</span><span class="o">.</span><span class="n">local</span>
+<span class="n">EPICS_BASE</span><span class="o">=/</span><span class="n">path</span><span class="o">/</span><span class="n">to</span><span class="o">/</span><span class="n">epics</span><span class="o">-</span><span class="n">base</span>
+<span class="n">EOF</span>
+<span class="n">make</span>
+</pre></div>
+</div>
+<p>See below for details on building EPICS from source.</p>
+<p>By default P4P will build using &#8216;python&#8217; found in the system search path.
+To explicitly specify a particular version.</p>
+<div class="highlight-default"><div class="highlight"><pre><span></span><span class="n">make</span> <span class="n">distclean</span>
+<span class="n">make</span> <span class="n">PYTHON</span><span class="o">=</span><span class="n">python3</span><span class="o">.</span><span class="mi">4</span>
+</pre></div>
+</div>
+<p>Alternately, the full path of the interpreter can be used.</p>
+<div class="highlight-default"><div class="highlight"><pre><span></span><span class="n">make</span> <span class="n">distclean</span>
+<span class="n">make</span> <span class="n">PYTHON</span><span class="o">=/</span><span class="n">usr</span><span class="o">/</span><span class="nb">bin</span><span class="o">/</span><span class="n">python3</span><span class="o">.</span><span class="mi">4</span>
+</pre></div>
+</div>
+<p>For convenience PYTHON can also be set in configure/CONFIG_SITE</p>
+<div class="section" id="multiple-python-versions">
+<h3>Multiple Python Versions<a class="headerlink" href="#multiple-python-versions" title="Permalink to this headline">¶</a></h3>
+<p>To build for multiple python versions it is necessary to do a partial clean before building
+another version.  This will not remove the final tree.</p>
+<div class="highlight-default"><div class="highlight"><pre><span></span><span class="n">make</span> <span class="n">PYTHON</span><span class="o">=</span><span class="n">python2</span><span class="o">.</span><span class="mi">7</span>
+<span class="n">make</span> <span class="n">PYTHON</span><span class="o">=</span><span class="n">python2</span><span class="o">.</span><span class="mi">7</span> <span class="n">clean</span>
+<span class="n">make</span> <span class="n">PYTHON</span><span class="o">=</span><span class="n">python3</span><span class="o">.</span><span class="mi">4</span>
+<span class="n">make</span> <span class="n">PYTHON</span><span class="o">=</span><span class="n">python3</span><span class="p">,</span><span class="mi">4</span> <span class="n">clean</span>
+</pre></div>
+</div>
+<div class="admonition note">
+<p class="first admonition-title">Note</p>
+<p class="last">If PYTHON= is ever specified, then it must be specified for all targets except &#8216;distclean&#8217;.</p>
+</div>
+</div>
+<div class="section" id="building-epics-dependencies">
+<span id="builddeps"></span><h3>Building EPICS dependencies<a class="headerlink" href="#building-epics-dependencies" title="Permalink to this headline">¶</a></h3>
+<p>If the necessary EPICS modules are not present, then they may be built from source.</p>
+<div class="highlight-default"><div class="highlight"><pre><span></span><span class="n">sudo</span> <span class="n">apt</span><span class="o">-</span><span class="n">get</span> <span class="n">install</span> <span class="n">libreadline6</span><span class="o">-</span><span class="n">dev</span> <span class="n">libncurses5</span><span class="o">-</span><span class="n">dev</span> <span class="n">perl</span>
+<span class="n">git</span> <span class="n">clone</span> <span class="o">--</span><span class="n">recursive</span> <span class="n">https</span><span class="p">:</span><span class="o">//</span><span class="n">github</span><span class="o">.</span><span class="n">com</span><span class="o">/</span><span class="n">epics</span><span class="o">-</span><span class="n">base</span><span class="o">/</span><span class="n">epics</span><span class="o">-</span><span class="n">base</span><span class="o">.</span><span class="n">git</span>
+<span class="n">make</span> <span class="o">-</span><span class="n">C</span> <span class="n">epics</span><span class="o">-</span><span class="n">base</span>
+<span class="n">echo</span> <span class="s2">&quot;EPICS_BASE=$PWD/epics-base&quot;</span> <span class="o">&gt;</span> <span class="o">../</span><span class="n">p4p</span><span class="o">/</span><span class="n">configure</span><span class="o">/</span><span class="n">RELEASE</span><span class="o">.</span><span class="n">local</span>
+</pre></div>
+</div>
+<p>When building against EPICS &lt; 7.0.1, the pvDataCPP and pvAccessCPP modules
+must be built separately.</p>
+</div>
+<div class="section" id="cli-and-unittests">
+<h3>CLI and unittests<a class="headerlink" href="#cli-and-unittests" title="Permalink to this headline">¶</a></h3>
+<p>To run the unittests:</p>
+<div class="highlight-default"><div class="highlight"><pre><span></span><span class="n">make</span> <span class="n">nose</span>
+</pre></div>
+</div>
+<p>or (change path as appropriate):</p>
+<div class="highlight-default"><div class="highlight"><pre><span></span>PYTHONPATH=$PWD/python2.7/linux-x86_86 nosetests
+</pre></div>
+</div>
+<p>For testing purposes several simple command line client tools are provided.
+For further information run:</p>
+<div class="highlight-default"><div class="highlight"><pre><span></span>PYTHONPATH=$PWD/python2.7/linux-x86_86 python -m p4p.client.cli -h
+</pre></div>
+</div>
+</div>
+</div>
+</div>
+
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+  <h3><a href="index.html">Table Of Contents</a></h3>
+  <ul>
+<li><a class="reference internal" href="#">Building</a><ul>
+<li><a class="reference internal" href="#build-as-python-package">Build as Python package</a><ul>
+<li><a class="reference internal" href="#bootstrap-a-virtualenv-offline">Bootstrap a virtualenv offline</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#build-as-epics-module">Build as EPICS Module</a><ul>
+<li><a class="reference internal" href="#multiple-python-versions">Multiple Python Versions</a></li>
+<li><a class="reference internal" href="#building-epics-dependencies">Building EPICS dependencies</a></li>
+<li><a class="reference internal" href="#cli-and-unittests">CLI and unittests</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+  <h4>Previous topic</h4>
+  <p class="topless"><a href="overview.html"
+                        title="previous chapter">Overview</a></p>
+  <h4>Next topic</h4>
+  <p class="topless"><a href="client.html"
+                        title="next chapter">Client API</a></p>
+  <div role="note" aria-label="source link">
+    <h3>This Page</h3>
+    <ul class="this-page-menu">
+      <li><a href="_sources/building.txt"
+            rel="nofollow">Show Source</a></li>
+    </ul>
+   </div>
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="search.html" method="get">
+      <div><input type="text" name="q" /></div>
+      <div><input type="submit" value="Go" /></div>
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="right" >
+          <a href="client.html" title="Client API"
+             >next</a> |</li>
+        <li class="right" >
+          <a href="overview.html" title="Overview"
+             >previous</a> |</li>
+        <li class="nav-item nav-item-0"><a href="index.html">P4P 0 documentation</a> &#187;</li> 
+      </ul>
+    </div>
+    <div class="footer" role="contentinfo">
+        &#169; Copyright 2017, Michael Davidsaver.
+      Created using <a href="http://sphinx-doc.org/">Sphinx</a> 1.4.9.
+    </div>
+  </body>
+</html>

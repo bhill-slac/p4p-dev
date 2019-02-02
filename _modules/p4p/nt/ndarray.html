@@ -1,0 +1,271 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>p4p.nt.ndarray &#8212; P4P 0 documentation</title>
+    
+    <link rel="stylesheet" href="../../../_static/classic.css" type="text/css" />
+    <link rel="stylesheet" href="../../../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../../',
+        VERSION:     '0',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../../_static/doctools.js"></script>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" />
+    <link rel="top" title="P4P 0 documentation" href="../../../index.html" />
+    <link rel="up" title="p4p.nt" href="../nt.html" /> 
+  </head>
+  <body role="document">
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../../../index.html">P4P 0 documentation</a> &#187;</li>
+          <li class="nav-item nav-item-1"><a href="../../index.html" >Module code</a> &#187;</li>
+          <li class="nav-item nav-item-2"><a href="../nt.html" accesskey="U">p4p.nt</a> &#187;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <h1>Source code for p4p.nt.ndarray</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;Helper for handling NTNDArray a la. areaDetector.</span>
+
+<span class="sd">Known attributes</span>
+
+<span class="sd">&quot;ColorMode&quot;   (inner-most left, as given in NDArray.cpp, numpy.ndarray.shape is reversed from this)</span>
+<span class="sd"> 0 - Mono   [Nx, Ny]</span>
+<span class="sd"> 1 - Bayer  [Nx, Ny]</span>
+<span class="sd"> 2 - RGB1   [3, Nx, Ny]</span>
+<span class="sd"> 3 - RGB2   [Nx, 3, Ny]</span>
+<span class="sd"> 4 - RGB3   [Nx, Ny, 3]</span>
+<span class="sd"> 5 - YUV444 ?</span>
+<span class="sd"> 6 - YUV422 ??</span>
+<span class="sd"> 7 - YUV411 ???</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">import</span> <span class="nn">logging</span>
+<span class="n">_log</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
+
+<span class="kn">import</span> <span class="nn">time</span>
+<span class="kn">import</span> <span class="nn">numpy</span>
+
+<span class="kn">from</span> <span class="nn">..wrapper</span> <span class="k">import</span> <span class="n">Type</span><span class="p">,</span> <span class="n">Value</span>
+<span class="kn">from</span> <span class="nn">.common</span> <span class="k">import</span> <span class="n">alarm</span><span class="p">,</span> <span class="n">timeStamp</span>
+
+<span class="kn">from</span> <span class="nn">.scalar</span> <span class="k">import</span> <span class="n">ntwrappercommon</span>
+
+
+<div class="viewcode-block" id="ntndarray"><a class="viewcode-back" href="../../../nt.html#p4p.nt.ntndarray">[docs]</a><span class="k">class</span> <span class="nc">ntndarray</span><span class="p">(</span><span class="n">ntwrappercommon</span><span class="p">,</span> <span class="n">numpy</span><span class="o">.</span><span class="n">ndarray</span><span class="p">):</span>
+
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Augmented numpy.ndarray with additional attributes</span>
+
+<span class="sd">    * .attrib    - dictionary</span>
+<span class="sd">    * .severity</span>
+<span class="sd">    * .status</span>
+<span class="sd">    * .timestamp - Seconds since 1 Jan 1970 UTC as a float</span>
+<span class="sd">    * .raw_stamp - A tuple (seconds, nanoseconds)</span>
+<span class="sd">    * .raw - The underlying :py:class:`p4p.Value`.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">attrib</span> <span class="o">=</span> <span class="kc">None</span>
+
+    <span class="k">def</span> <span class="nf">_store</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">value</span><span class="p">):</span>
+        <span class="n">ntwrappercommon</span><span class="o">.</span><span class="n">_store</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">attrib</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">for</span> <span class="n">elem</span> <span class="ow">in</span> <span class="n">value</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;attribute&#39;</span><span class="p">,</span> <span class="p">[]):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">attrib</span><span class="p">[</span><span class="n">elem</span><span class="o">.</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">elem</span><span class="o">.</span><span class="n">value</span>
+
+        <span class="c1"># we will fail if dimension[] contains None s, or if</span>
+        <span class="c1"># the advertised shape isn&#39;t consistent with the pixel array length.</span>
+        <span class="n">shape</span> <span class="o">=</span> <span class="p">[</span><span class="n">D</span><span class="o">.</span><span class="n">size</span> <span class="k">for</span> <span class="n">D</span> <span class="ow">in</span> <span class="n">value</span><span class="o">.</span><span class="n">dimension</span><span class="p">]</span>
+        <span class="n">shape</span><span class="o">.</span><span class="n">reverse</span><span class="p">()</span>
+
+        <span class="c1"># in-place reshape!  Isn&#39;t numpy fun</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">shape</span> <span class="o">=</span> <span class="n">shape</span> <span class="ow">or</span> <span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="c1"># can&#39;t reshape if 0-d, so treat as 1-d if no dimensions provided</span>
+
+        <span class="k">return</span> <span class="bp">self</span></div>
+
+
+<div class="viewcode-block" id="NTNDArray"><a class="viewcode-back" href="../../../nt.html#p4p.nt.NTNDArray">[docs]</a><span class="k">class</span> <span class="nc">NTNDArray</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Representation of an N-dimensional array with meta-data</span>
+
+<span class="sd">    Translates into `ntndarray`</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">Value</span> <span class="o">=</span> <span class="n">Value</span>
+    <span class="n">ntndarray</span> <span class="o">=</span> <span class="n">ntndarray</span>
+
+    <span class="c1"># map numpy.dtype.char to .value union member name</span>
+    <span class="n">_code2u</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="s1">&#39;?&#39;</span><span class="p">:</span><span class="s1">&#39;booleanValue&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;b&#39;</span><span class="p">:</span><span class="s1">&#39;byteValue&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;h&#39;</span><span class="p">:</span><span class="s1">&#39;shortValue&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;i&#39;</span><span class="p">:</span><span class="s1">&#39;intValue&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;l&#39;</span><span class="p">:</span><span class="s1">&#39;longValue&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;B&#39;</span><span class="p">:</span><span class="s1">&#39;ubyteValue&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;H&#39;</span><span class="p">:</span><span class="s1">&#39;ushortValue&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;I&#39;</span><span class="p">:</span><span class="s1">&#39;uintValue&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;L&#39;</span><span class="p">:</span><span class="s1">&#39;ulongValue&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;f&#39;</span><span class="p">:</span><span class="s1">&#39;floatValue&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;d&#39;</span><span class="p">:</span><span class="s1">&#39;doubleValue&#39;</span><span class="p">,</span>
+    <span class="p">}</span>
+
+    <span class="nd">@staticmethod</span>
+<div class="viewcode-block" id="NTNDArray.buildType"><a class="viewcode-back" href="../../../nt.html#p4p.nt.NTNDArray.buildType">[docs]</a>    <span class="k">def</span> <span class="nf">buildType</span><span class="p">(</span><span class="n">extra</span><span class="o">=</span><span class="p">[]):</span>
+        <span class="sd">&quot;&quot;&quot;Build type</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="n">Type</span><span class="p">([</span>
+            <span class="p">(</span><span class="s1">&#39;value&#39;</span><span class="p">,</span> <span class="p">(</span><span class="s1">&#39;U&#39;</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="p">[</span>
+                <span class="p">(</span><span class="s1">&#39;booleanValue&#39;</span><span class="p">,</span> <span class="s1">&#39;a?&#39;</span><span class="p">),</span>
+                <span class="p">(</span><span class="s1">&#39;byteValue&#39;</span><span class="p">,</span> <span class="s1">&#39;ab&#39;</span><span class="p">),</span>
+                <span class="p">(</span><span class="s1">&#39;shortValue&#39;</span><span class="p">,</span> <span class="s1">&#39;ah&#39;</span><span class="p">),</span>
+                <span class="p">(</span><span class="s1">&#39;intValue&#39;</span><span class="p">,</span> <span class="s1">&#39;ai&#39;</span><span class="p">),</span>
+                <span class="p">(</span><span class="s1">&#39;longValue&#39;</span><span class="p">,</span> <span class="s1">&#39;al&#39;</span><span class="p">),</span>
+                <span class="p">(</span><span class="s1">&#39;ubyteValue&#39;</span><span class="p">,</span> <span class="s1">&#39;aB&#39;</span><span class="p">),</span>
+                <span class="p">(</span><span class="s1">&#39;ushortValue&#39;</span><span class="p">,</span> <span class="s1">&#39;aH&#39;</span><span class="p">),</span>
+                <span class="p">(</span><span class="s1">&#39;uintValue&#39;</span><span class="p">,</span> <span class="s1">&#39;aI&#39;</span><span class="p">),</span>
+                <span class="p">(</span><span class="s1">&#39;ulongValue&#39;</span><span class="p">,</span> <span class="s1">&#39;aL&#39;</span><span class="p">),</span>
+                <span class="p">(</span><span class="s1">&#39;floatValue&#39;</span><span class="p">,</span> <span class="s1">&#39;af&#39;</span><span class="p">),</span>
+                <span class="p">(</span><span class="s1">&#39;doubleValue&#39;</span><span class="p">,</span> <span class="s1">&#39;ad&#39;</span><span class="p">),</span>
+            <span class="p">])),</span>
+            <span class="p">(</span><span class="s1">&#39;codec&#39;</span><span class="p">,</span> <span class="p">(</span><span class="s1">&#39;aS&#39;</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="p">[</span>
+                <span class="p">(</span><span class="s1">&#39;name&#39;</span><span class="p">,</span> <span class="s1">&#39;s&#39;</span><span class="p">),</span>
+                <span class="p">(</span><span class="s1">&#39;parameters&#39;</span><span class="p">,</span> <span class="s1">&#39;v&#39;</span><span class="p">),</span>
+            <span class="p">])),</span>
+            <span class="p">(</span><span class="s1">&#39;compressedSize&#39;</span><span class="p">,</span> <span class="s1">&#39;l&#39;</span><span class="p">),</span>
+            <span class="p">(</span><span class="s1">&#39;uncompressedSize&#39;</span><span class="p">,</span> <span class="s1">&#39;l&#39;</span><span class="p">),</span>
+            <span class="p">(</span><span class="s1">&#39;uniqueId&#39;</span><span class="p">,</span> <span class="s1">&#39;i&#39;</span><span class="p">),</span>
+            <span class="p">(</span><span class="s1">&#39;alarm&#39;</span><span class="p">,</span> <span class="n">alarm</span><span class="p">),</span>
+            <span class="p">(</span><span class="s1">&#39;timeStamp&#39;</span><span class="p">,</span> <span class="n">timeStamp</span><span class="p">),</span>
+            <span class="p">(</span><span class="s1">&#39;dimension&#39;</span><span class="p">,</span> <span class="p">(</span><span class="s1">&#39;aS&#39;</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="p">[</span>
+                <span class="p">(</span><span class="s1">&#39;size&#39;</span><span class="p">,</span> <span class="s1">&#39;i&#39;</span><span class="p">),</span>
+                <span class="p">(</span><span class="s1">&#39;offset&#39;</span><span class="p">,</span> <span class="s1">&#39;i&#39;</span><span class="p">),</span>
+                <span class="p">(</span><span class="s1">&#39;fullSize&#39;</span><span class="p">,</span> <span class="s1">&#39;i&#39;</span><span class="p">),</span>
+                <span class="p">(</span><span class="s1">&#39;binning&#39;</span><span class="p">,</span> <span class="s1">&#39;i&#39;</span><span class="p">),</span>
+                <span class="p">(</span><span class="s1">&#39;reverse&#39;</span><span class="p">,</span> <span class="s1">&#39;?&#39;</span><span class="p">),</span>
+            <span class="p">])),</span>
+            <span class="p">(</span><span class="s1">&#39;attribute&#39;</span><span class="p">,</span> <span class="p">(</span><span class="s1">&#39;aS&#39;</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="p">[</span>
+                <span class="p">(</span><span class="s1">&#39;name&#39;</span><span class="p">,</span> <span class="s1">&#39;s&#39;</span><span class="p">),</span>
+                <span class="p">(</span><span class="s1">&#39;value&#39;</span><span class="p">,</span> <span class="s1">&#39;v&#39;</span><span class="p">),</span>
+                <span class="p">(</span><span class="s1">&#39;tags&#39;</span><span class="p">,</span> <span class="s1">&#39;as&#39;</span><span class="p">),</span>
+                <span class="p">(</span><span class="s1">&#39;descriptor&#39;</span><span class="p">,</span> <span class="s1">&#39;s&#39;</span><span class="p">),</span>
+                <span class="p">(</span><span class="s1">&#39;alarm&#39;</span><span class="p">,</span> <span class="n">alarm</span><span class="p">),</span>
+                <span class="p">(</span><span class="s1">&#39;timestamp&#39;</span><span class="p">,</span> <span class="n">timeStamp</span><span class="p">),</span>
+                <span class="p">(</span><span class="s1">&#39;sourceType&#39;</span><span class="p">,</span> <span class="s1">&#39;i&#39;</span><span class="p">),</span>
+                <span class="p">(</span><span class="s1">&#39;source&#39;</span><span class="p">,</span> <span class="s1">&#39;s&#39;</span><span class="p">),</span>
+            <span class="p">])),</span>
+        <span class="p">],</span> <span class="nb">id</span><span class="o">=</span><span class="s1">&#39;epics:nt/NTNDArray:1.0&#39;</span><span class="p">)</span></div>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">kws</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">type</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">buildType</span><span class="p">(</span><span class="o">**</span><span class="n">kws</span><span class="p">)</span>
+
+<div class="viewcode-block" id="NTNDArray.wrap"><a class="viewcode-back" href="../../../nt.html#p4p.nt.NTNDArray.wrap">[docs]</a>    <span class="k">def</span> <span class="nf">wrap</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">value</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Wrap numpy.ndarray as Value</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+
+        <span class="n">S</span><span class="p">,</span> <span class="n">NS</span> <span class="o">=</span> <span class="nb">divmod</span><span class="p">(</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">(),</span> <span class="mf">1.0</span><span class="p">)</span>
+        <span class="n">value</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+        <span class="n">dims</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">value</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+        <span class="n">dims</span><span class="o">.</span><span class="n">reverse</span><span class="p">()</span> <span class="c1"># inner-most sent as left</span>
+
+        <span class="n">attrib</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="s1">&#39;attrib&#39;</span><span class="p">,</span> <span class="p">{})</span>
+        <span class="k">if</span> <span class="s1">&#39;ColorMode&#39;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">attrib</span><span class="p">:</span>
+            <span class="n">attrib</span><span class="p">[</span><span class="s1">&#39;ColorMode&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span> <span class="k">if</span> <span class="n">value</span><span class="o">.</span><span class="n">ndim</span><span class="o">==</span><span class="mi">2</span> <span class="k">else</span> <span class="mi">4</span> <span class="c1"># NDArray::getInfo() treats unknown as RGB3</span>
+        <span class="c1"># else: assume caller knows what ColorMode means</span>
+
+        <span class="n">dataSize</span> <span class="o">=</span> <span class="n">value</span><span class="o">.</span><span class="n">nbytes</span>
+
+        <span class="k">return</span> <span class="n">Value</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">type</span><span class="p">,</span> <span class="p">{</span>
+            <span class="s1">&#39;value&#39;</span><span class="p">:</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_code2u</span><span class="p">[</span><span class="n">value</span><span class="o">.</span><span class="n">dtype</span><span class="o">.</span><span class="n">char</span><span class="p">],</span> <span class="n">value</span><span class="o">.</span><span class="n">flatten</span><span class="p">()),</span>
+            <span class="s1">&#39;compressedSize&#39;</span><span class="p">:</span> <span class="n">dataSize</span><span class="p">,</span>
+            <span class="s1">&#39;uncompressedSize&#39;</span><span class="p">:</span> <span class="n">dataSize</span><span class="p">,</span>
+            <span class="s1">&#39;uniqueId&#39;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span>
+            <span class="s1">&#39;timeStamp&#39;</span><span class="p">:</span> <span class="p">{</span>
+                <span class="s1">&#39;secondsPastEpoch&#39;</span><span class="p">:</span> <span class="n">S</span><span class="p">,</span>
+                <span class="s1">&#39;nanoseconds&#39;</span><span class="p">:</span> <span class="n">NS</span> <span class="o">*</span> <span class="mf">1e9</span><span class="p">,</span>
+            <span class="p">},</span>
+            <span class="s1">&#39;attribute&#39;</span><span class="p">:</span> <span class="p">[{</span><span class="s1">&#39;name&#39;</span><span class="p">:</span> <span class="n">K</span><span class="p">,</span> <span class="s1">&#39;value&#39;</span><span class="p">:</span> <span class="n">V</span><span class="p">}</span> <span class="k">for</span> <span class="n">K</span><span class="p">,</span> <span class="n">V</span> <span class="ow">in</span> <span class="n">attrib</span><span class="o">.</span><span class="n">items</span><span class="p">()],</span>
+            <span class="s1">&#39;dimension&#39;</span><span class="p">:</span> <span class="p">[{</span><span class="s1">&#39;size&#39;</span><span class="p">:</span> <span class="n">N</span><span class="p">,</span>
+                           <span class="s1">&#39;offset&#39;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span>
+                           <span class="s1">&#39;fullSize&#39;</span><span class="p">:</span> <span class="n">N</span><span class="p">,</span>
+                           <span class="s1">&#39;binning&#39;</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span>
+                           <span class="s1">&#39;reverse&#39;</span><span class="p">:</span> <span class="kc">False</span><span class="p">}</span> <span class="k">for</span> <span class="n">N</span> <span class="ow">in</span> <span class="n">dims</span><span class="p">],</span>
+        <span class="p">})</span></div>
+
+    <span class="nd">@classmethod</span>
+<div class="viewcode-block" id="NTNDArray.unwrap"><a class="viewcode-back" href="../../../nt.html#p4p.nt.NTNDArray.unwrap">[docs]</a>    <span class="k">def</span> <span class="nf">unwrap</span><span class="p">(</span><span class="n">klass</span><span class="p">,</span> <span class="n">value</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Unwrap Value as NTNDArray</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">V</span> <span class="o">=</span> <span class="n">value</span><span class="o">.</span><span class="n">value</span>
+        <span class="k">if</span> <span class="n">V</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="c1"># Union empty.  treat as zero-length char array</span>
+            <span class="n">V</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="mi">0</span><span class="p">,),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">numpy</span><span class="o">.</span><span class="n">uint8</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">V</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">klass</span><span class="o">.</span><span class="n">ntndarray</span><span class="p">)</span><span class="o">.</span><span class="n">_store</span><span class="p">(</span><span class="n">value</span><span class="p">)</span></div>
+
+<div class="viewcode-block" id="NTNDArray.assign"><a class="viewcode-back" href="../../../nt.html#p4p.nt.NTNDArray.assign">[docs]</a>    <span class="k">def</span> <span class="nf">assign</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">V</span><span class="p">,</span> <span class="n">py</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Store python value in Value</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">V</span><span class="o">.</span><span class="n">value</span> <span class="o">=</span> <span class="n">py</span></div></div>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="../../../search.html" method="get">
+      <div><input type="text" name="q" /></div>
+      <div><input type="submit" value="Go" /></div>
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../../genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="../../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../../../index.html">P4P 0 documentation</a> &#187;</li>
+          <li class="nav-item nav-item-1"><a href="../../index.html" >Module code</a> &#187;</li>
+          <li class="nav-item nav-item-2"><a href="../nt.html" >p4p.nt</a> &#187;</li> 
+      </ul>
+    </div>
+    <div class="footer" role="contentinfo">
+        &#169; Copyright 2017, Michael Davidsaver.
+      Created using <a href="http://sphinx-doc.org/">Sphinx</a> 1.4.9.
+    </div>
+  </body>
+</html>

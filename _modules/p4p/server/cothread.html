@@ -1,0 +1,210 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>p4p.server.cothread &#8212; P4P 0 documentation</title>
+    
+    <link rel="stylesheet" href="../../../_static/classic.css" type="text/css" />
+    <link rel="stylesheet" href="../../../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../../',
+        VERSION:     '0',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../../_static/doctools.js"></script>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" />
+    <link rel="top" title="P4P 0 documentation" href="../../../index.html" />
+    <link rel="up" title="p4p.server" href="../server.html" /> 
+  </head>
+  <body role="document">
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../../../index.html">P4P 0 documentation</a> &#187;</li>
+          <li class="nav-item nav-item-1"><a href="../../index.html" >Module code</a> &#187;</li>
+          <li class="nav-item nav-item-2"><a href="../server.html" accesskey="U">p4p.server</a> &#187;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <h1>Source code for p4p.server.cothread</h1><div class="highlight"><pre>
+<span></span>
+<span class="kn">from</span> <span class="nn">__future__</span> <span class="k">import</span> <span class="n">absolute_import</span>
+
+<span class="kn">import</span> <span class="nn">logging</span>
+<span class="kn">import</span> <span class="nn">warnings</span>
+<span class="n">_log</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
+
+<span class="kn">from</span> <span class="nn">weakref</span> <span class="k">import</span> <span class="n">WeakSet</span>
+<span class="kn">from</span> <span class="nn">functools</span> <span class="k">import</span> <span class="n">partial</span>
+
+<span class="kn">import</span> <span class="nn">cothread</span>
+<span class="kn">from</span> <span class="nn">cothread</span> <span class="k">import</span> <span class="n">Spawn</span><span class="p">,</span> <span class="n">Callback</span><span class="p">,</span> <span class="n">Event</span><span class="p">,</span> <span class="n">WaitForAll</span>
+<span class="kn">from</span> <span class="nn">.raw</span> <span class="k">import</span> <span class="n">SharedPV</span> <span class="k">as</span> <span class="n">_SharedPV</span><span class="p">,</span> <span class="n">Handler</span>
+<span class="kn">from</span> <span class="nn">..client.thread</span> <span class="k">import</span> <span class="n">RemoteError</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">(</span>
+    <span class="s1">&#39;SharedPV&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;Handler&#39;</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="c1"># Spawn and Event have __slots__ which doesn&#39;t include &#39;__weakref__&#39;</span>
+
+<span class="k">class</span> <span class="nc">WeakSpawn</span><span class="p">(</span><span class="n">Spawn</span><span class="p">):</span>
+    <span class="vm">__slots__</span><span class="o">=</span><span class="p">[</span><span class="s1">&#39;__weakref__&#39;</span><span class="p">]</span>
+
+<span class="k">class</span> <span class="nc">WeakEvent</span><span class="p">(</span><span class="n">Event</span><span class="p">):</span>
+    <span class="vm">__slots__</span><span class="o">=</span><span class="p">[</span><span class="s1">&#39;__weakref__&#39;</span><span class="p">]</span>
+
+<span class="c1"># a set of WeakSpawn and/or WeakEvent</span>
+<span class="c1"># in progress _handle() cothreads, or _sync() events</span>
+<span class="n">_handlers</span> <span class="o">=</span> <span class="n">WeakSet</span><span class="p">()</span>
+
+<span class="k">def</span> <span class="nf">_sync</span><span class="p">(</span><span class="n">timeout</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;I will wait until all pending handlers cothreads have completed</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">evt</span> <span class="o">=</span> <span class="n">WeakEvent</span><span class="p">(</span><span class="n">auto_reset</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+
+    <span class="c1"># first ensure that any pending callbacks from worker threads have been delivered</span>
+    <span class="c1"># these are calls of _fromMain()</span>
+    <span class="n">Callback</span><span class="p">(</span><span class="n">evt</span><span class="o">.</span><span class="n">Signal</span><span class="p">)</span>
+    <span class="n">evt</span><span class="o">.</span><span class="n">Wait</span><span class="p">(</span><span class="n">timeout</span><span class="o">=</span><span class="n">timeout</span><span class="p">)</span>
+
+    <span class="n">evt</span><span class="o">.</span><span class="n">Reset</span><span class="p">()</span> <span class="c1"># reuse</span>
+
+    <span class="c1"># grab the current set of inprogress cothreads/events</span>
+    <span class="n">wait4</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="n">_handlers</span><span class="p">)</span>
+    <span class="c1"># because Spawn.Wait() can only be called once, remove them and</span>
+    <span class="c1"># use &#39;evt&#39; as a proxy for what I&#39;m waiting on so that overlapping</span>
+    <span class="c1"># calls to _sync() will wait for these as well.</span>
+    <span class="c1"># However, this means that our failure will must cascade to subsequent</span>
+    <span class="c1"># calls to _sync() before we complete.</span>
+    <span class="n">_handlers</span><span class="o">.</span><span class="n">clear</span><span class="p">()</span>
+    <span class="n">_handlers</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">evt</span><span class="p">)</span>
+
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">WaitForAll</span><span class="p">(</span><span class="n">wait4</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="n">timeout</span><span class="p">)</span>
+    <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+        <span class="n">evt</span><span class="o">.</span><span class="n">SignalException</span><span class="p">(</span><span class="n">e</span><span class="p">)</span> <span class="c1"># pass along error to next concurrent _sync()</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">evt</span><span class="o">.</span><span class="n">Signal</span><span class="p">()</span> <span class="c1"># pass along success</span>
+
+<span class="c1"># Callback() runs me in the main thread</span>
+<span class="k">def</span> <span class="nf">_fromMain</span><span class="p">(</span><span class="n">_handle</span><span class="p">,</span> <span class="n">op</span><span class="p">,</span> <span class="n">M</span><span class="p">,</span> <span class="n">args</span><span class="p">):</span>
+    <span class="c1">#_log.debug(&quot;_fromMain %s&quot;, M)</span>
+    <span class="n">co</span> <span class="o">=</span> <span class="n">WeakSpawn</span><span class="p">(</span><span class="n">_handle</span><span class="p">,</span> <span class="n">op</span><span class="p">,</span> <span class="n">M</span><span class="p">,</span> <span class="n">args</span><span class="p">)</span>
+    <span class="n">_handlers</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">co</span><span class="p">)</span>
+
+<span class="k">def</span> <span class="nf">_handle</span><span class="p">(</span><span class="n">op</span><span class="p">,</span> <span class="n">M</span><span class="p">,</span> <span class="n">args</span><span class="p">):</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">M</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">)</span>
+        <span class="k">return</span>
+    <span class="k">except</span> <span class="n">RemoteError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+        <span class="n">err</span> <span class="o">=</span> <span class="n">e</span>
+    <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+        <span class="n">_log</span><span class="o">.</span><span class="n">exception</span><span class="p">(</span><span class="s2">&quot;Unexpected&quot;</span><span class="p">)</span>
+        <span class="n">err</span> <span class="o">=</span> <span class="n">e</span>
+    <span class="k">finally</span><span class="p">:</span>
+        <span class="n">M</span> <span class="o">=</span> <span class="n">args</span> <span class="o">=</span> <span class="kc">None</span> <span class="c1"># prevent lingering references after _sync() returns</span>
+    <span class="k">if</span> <span class="n">op</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">op</span><span class="o">.</span><span class="n">done</span><span class="p">(</span><span class="n">error</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">err</span><span class="p">))</span>
+
+
+<div class="viewcode-block" id="SharedPV"><a class="viewcode-back" href="../../../server.html#p4p.server.cothread.SharedPV">[docs]</a><span class="k">class</span> <span class="nc">SharedPV</span><span class="p">(</span><span class="n">_SharedPV</span><span class="p">):</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">queue</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="o">**</span><span class="n">kws</span><span class="p">):</span>
+        <span class="n">_SharedPV</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">kws</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_queue</span> <span class="o">=</span> <span class="n">queue</span> <span class="ow">or</span> <span class="n">Callback</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_disconnected</span> <span class="o">=</span> <span class="n">Event</span><span class="p">(</span><span class="n">auto_reset</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_disconnected</span><span class="o">.</span><span class="n">Signal</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">_exec</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">op</span><span class="p">,</span> <span class="n">M</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">):</span>
+        <span class="c1">#_log.debug(&quot;_exec %s&quot;, M)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_queue</span><span class="p">(</span><span class="n">_fromMain</span><span class="p">,</span> <span class="n">_handle</span><span class="p">,</span> <span class="n">op</span><span class="p">,</span> <span class="n">M</span><span class="p">,</span> <span class="n">args</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_onFirstConnect</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">_junk</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_disconnected</span><span class="o">.</span><span class="n">Reset</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">_onLastDisconnect</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">_junk</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_disconnected</span><span class="o">.</span><span class="n">Signal</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">close</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">destroy</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">sync</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Close PV, disconnecting any clients.</span>
+
+<span class="sd">        :param bool destroy: Indicate &quot;permanent&quot; closure.  Current clients will not see subsequent open().</span>
+<span class="sd">        :param bool sync: When block until any pending onLastDisconnect() is delivered (timeout applies).</span>
+<span class="sd">        :param float timeout: Applies only when sync=True.  None for no timeout, otherwise a non-negative floating point value.</span>
+
+<span class="sd">        close() with destory=True or sync=True will not prevent clients from re-connecting.</span>
+<span class="sd">        New clients may prevent sync=True from succeeding.</span>
+<span class="sd">        Prevent reconnection by __first__ stopping the Server, removing with :py:method:`StaticProvider.remove()`,</span>
+<span class="sd">        or preventing a :py:class:`DynamicProvider` from making new channels to this SharedPV.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">_SharedPV</span><span class="o">.</span><span class="n">close</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">destroy</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">sync</span><span class="p">:</span>
+            <span class="c1"># TODO: still not syncing PVA workers...</span>
+            <span class="n">_sync</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_disconnected</span><span class="o">.</span><span class="n">Wait</span><span class="p">(</span><span class="n">timeout</span><span class="o">=</span><span class="n">timeout</span><span class="p">)</span></div>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="../../../search.html" method="get">
+      <div><input type="text" name="q" /></div>
+      <div><input type="submit" value="Go" /></div>
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../../genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="../../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../../../index.html">P4P 0 documentation</a> &#187;</li>
+          <li class="nav-item nav-item-1"><a href="../../index.html" >Module code</a> &#187;</li>
+          <li class="nav-item nav-item-2"><a href="../server.html" >p4p.server</a> &#187;</li> 
+      </ul>
+    </div>
+    <div class="footer" role="contentinfo">
+        &#169; Copyright 2017, Michael Davidsaver.
+      Created using <a href="http://sphinx-doc.org/">Sphinx</a> 1.4.9.
+    </div>
+  </body>
+</html>
