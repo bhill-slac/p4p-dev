@@ -499,6 +499,7 @@ class App(object):
         new_servers = []
         for jsrv in jconf['servers']:
             iface = jsrv.get('interface')
+            _log.info( 'Server %s: interface=%s' % ( jsrv.get('name'), iface ) )
             if len(jsrv.get('addrlist',''))>0 and len(iface)>1:
                 _log.warning('Server entries for more than one interface must not specify addrlist.')
                 _log.warning('Each server interface will attempt to send beacons to all destinations')
@@ -527,6 +528,7 @@ class App(object):
                 'EPICS_PVAS_AUTO_BEACON_ADDR_LIST':{True:'YES', False:'NO'}[jsrv.get('autoaddrlist',True)],
                 # ignore list not fully implemented.  (aka. never populated or used)
             }
+            _log.info( 'EPICS_PVAS_INTF_ADDR_LIST=%s' % server_conf['EPICS_PVAS_INTF_ADDR_LIST'] )
             if 'bcastport' in jsrv:
                 server_conf['EPICS_PVAS_BROADCAST_PORT'] = str(jsrv['bcastport'])
             if 'serverport' in jsrv:
