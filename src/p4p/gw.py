@@ -507,8 +507,7 @@ class App(object):
             for iface in iface:
                 jsrv = jsrv.copy()
                 jsrv['interface'] = iface
-
-            new_servers.append(jsrv)
+                new_servers.append(jsrv)
 
         jconf['servers'] = new_servers
         del new_servers
